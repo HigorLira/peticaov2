@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="pt-pt">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gerador de Petições Inteligente</title>
+    
+    <!-- Favicon: Folha de Papel Laranja -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23ea580c'><path d='M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z'/></svg>">
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #fffaf5;
+            --primary: #ea580c;
+            --primary2: #fb923c;
+            --text: #1f2937;
+            --muted: rgba(31, 41, 55, .65);
+            --radius: 22px;
+            --shadow: 0 30px 70px rgba(124, 45, 18, .15);
+        }
+
+        * { box-sizing: border-box; }
+        html, body { height: 100%; margin: 0; font-family: 'Inter', sans-serif; color: var(--text); background: var(--bg); }
+
+        .bg-container { position: fixed; inset: 0; z-index: -1; overflow: hidden; }
+        .bg-gradient {
+            position: absolute; inset: 0;
+            background: 
+                radial-gradient(900px 600px at 15% 10%, rgba(251,146,60,.28), transparent 60%),
+                radial-gradient(800px 600px at 85% 20%, rgba(234,88,12,.22), transparent 55%),
+                radial-gradient(900px 600px at 50% 95%, rgba(253,186,116,.30), transparent 60%);
+        }
+
+        /* Contentor que será substituído */
+        #app-viewport {
+            min-height: 100vh;
+            width: 100%;
+        }
+
+        .app-container {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 32px 16px;
+        }
+
+        .view { width: 100%; max-width: 560px; animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .card {
+            background: rgba(255, 255, 255, .88);
+            border: 1px solid rgba(124, 45, 18, .14);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 34px;
+            backdrop-filter: blur(10px);
+        }
+
+        .logo { display: flex; justify-content: center; margin-bottom: 14px; }
+        .logo img { width: 180px; height: auto; }
+
+        h1 { margin: 0 0 10px 0; text-align: center; font-size: 28px; color: #111827; }
+
+        .dropzone {
+            position: relative; border: 1px dashed rgba(234,88,12,.35);
+            background: rgba(255,255,255,.75); padding: 30px; border-radius: 18px;
+            text-align: center; cursor: pointer; transition: 0.2s;
+        }
+        .dropzone:hover { background: rgba(251,146,60,.08); }
+        .dropzone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+
+        .btn-primary {
+            width: 100%; border: none; cursor: pointer; padding: 16px; border-radius: 14px;
+            font-weight: 800; color: white; background: linear-gradient(135deg, var(--primary), var(--primary2));
+            box-shadow: 0 14px 34px rgba(17,24,39,.08); transition: .2s;
+        }
+
+        /* Loader Fixo (não desaparece ao trocar de conteúdo) */
+        #loader {
+            display: none; position: fixed; inset: 0;
+            background: rgba(255,250,245,.95); backdrop-filter: blur(10px);
+            z-index: 10000; align-items: center; justify-content: center; text-align: center;
+        }
+        .loader-circle {
+            width: 60px; height: 60px; border-radius: 50%;
+            border: 6px solid rgba(234,88,12,.1); border-top-color: var(--primary);
+            animation: spin 1s linear infinite; margin-bottom: 20px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <div class="bg-container"><div class="bg-gradient"></div></div>
+
+    <!-- LOADER PERSISTENTE -->
+    <div id="loader">
+        <div style="display: flex; flex-direction: column; align-items: center;">
+            <div class="loader-circle"></div>
+            <div id="loaderMsg" style="font-weight: 600; color: var(--primary);">Processando...</div>
+        </div>
+    </div>
+
+    <div id="app-viewport">
+        <!-- TELA INICIAL (UPLOAD) -->
+        <div class="app-container">
+            <section class="view">
+                <div class="logo"><img src="https://i.imgur.com/NM93tBo.png" alt="Logótipo"></div>
+                <div class="card">
+                    <h1>Gerador de Petições</h1>
+                    <p style="text-align:center; color: var(--muted); font-size: 14px; margin-bottom: 20px;">
+                        Carregue o ficheiro PDF para análise automática.
+                    </p>
+                    <div class="dropzone" id="dropzone">
+                        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" style="margin-bottom: 10px">
+                            <path d="M12 16V8M9 11L12 8L15 11" stroke="#ea580c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M20 16.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-1.5" stroke="#ea580c" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                        <p style="font-weight: 700; margin: 0; color: #7c2d12;">Arraste o PDF para aqui</p>
+                        <input type="file" id="fileInput" accept="application/pdf">
+                    </div>
+                    <div id="fileMeta" style="display:none; margin-top:15px; font-size:12px; color: var(--muted); text-align: center;"></div>
+                    <button class="btn-primary" style="margin-top: 20px;" onclick="handleFileUpload()">INICIAR ANÁLISE</button>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <script>
+        const WEBHOOK_ANALISE = "https://n8n.timeportras.cloud/webhook/peticaov2";
+
+        function showLoader(show, msg = "") {
+            const l = document.getElementById('loader');
+            if(msg) document.getElementById('loaderMsg').innerText = msg;
+            l.style.display = show ? 'flex' : 'none';
+        }
+
+        // Função principal para enviar dados e tratar a resposta (mirroring)
+        async function sendRequest(url, body, isFormData = true) {
+            showLoader(true);
+            try {
+                const options = { method: 'POST', body: body };
+                if (!isFormData) {
+                    options.headers = { 'Content-Type': 'application/json' };
+                }
+
+                const response = await fetch(url, options);
+                const contentType = response.headers.get("content-type");
+                let htmlContent = "";
+
+                if (contentType && contentType.includes("application/json")) {
+                    const data = await response.json();
+                    htmlContent = Array.isArray(data) ? (data[0].html || data[0]) : (data.html || data);
+                } else {
+                    htmlContent = await response.text();
+                }
+
+                if (htmlContent && (htmlContent.includes("<html") || htmlContent.includes("<!DOCTYPE"))) {
+                    updateViewport(htmlContent);
+                } else {
+                    alert("Resposta inválida do servidor.");
+                    showLoader(false);
+                }
+            } catch (error) {
+                console.error(error);
+                alert("Erro na ligação: " + error.message);
+                showLoader(false);
+            }
+        }
+
+        // Faz o upload inicial
+        async function handleFileUpload() {
+            const input = document.getElementById('fileInput');
+            if(!input.files.length) return alert("Selecione um PDF.");
+            
+            const formData = new FormData();
+            formData.append('file', input.files[0]);
+            
+            showLoader(true, "Analisando seu documento...");
+            await sendRequest(WEBHOOK_ANALISE, formData);
+        }
+
+        // Atualiza o viewport sem destruir o loader ou o URL
+        function updateViewport(htmlContent) {
+            const viewport = document.getElementById('app-viewport');
+            
+            // Técnica de Mirroring Seguro usando Iframe para preservar o domínio principal
+            viewport.innerHTML = `<iframe id="mirror-frame" style="width:100%; min-height:100vh; border:none; overflow:auto;"></iframe>`;
+            
+            const iframe = document.getElementById('mirror-frame');
+            const doc = iframe.contentWindow.document;
+
+            // Injeta script para capturar cliques em botões de submit dentro do iframe
+            const injection = `
+                <script>
+                    document.addEventListener('submit', function(e) {
+                        e.preventDefault();
+                        const form = e.target;
+                        const formData = new FormData(form);
+                        const payload = {};
+                        formData.forEach((value, key) => payload[key] = value);
+
+                        // Comunica com a página pai para processar o próximo passo
+                        window.parent.processFormStep(form.action, JSON.stringify(payload));
+                    });
+
+                    // Ajusta altura do iframe automaticamente
+                    function adjustHeight() {
+                        const frame = window.parent.document.getElementById('mirror-frame');
+                        if (frame) {
+                            frame.style.height = document.documentElement.scrollHeight + 'px';
+                        }
+                    }
+                    window.onload = adjustHeight;
+                    window.onclick = adjustHeight;
+                    // Observador para mudanças no conteúdo (ex: modais abertos)
+                    const observer = new MutationObserver(adjustHeight);
+                    observer.observe(document.body, { childList: true, subtree: true });
+                <\/script>
+            `;
+
+            const finalHtml = htmlContent.replace('</body>', injection + '</body>');
+
+            doc.open();
+            doc.write(finalHtml);
+            doc.close();
+            
+            showLoader(false);
+        }
+
+        // Função chamada pelo iframe para processar o formulário da revisão
+        window.processFormStep = async function(url, jsonPayload) {
+            showLoader(true, "Gerando sua petição...");
+            await sendRequest(url, jsonPayload, false);
+        };
+
+        // Feedback visual do upload
+        document.getElementById('fileInput').addEventListener('change', (e) => {
+            const f = e.target.files[0];
+            if(f) {
+                document.getElementById('fileMeta').style.display = 'block';
+                document.getElementById('fileMeta').innerText = `Ficheiro: ${f.name}`;
+            }
+        });
+    </script>
+</body>
+</html>
