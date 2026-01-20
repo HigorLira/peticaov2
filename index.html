@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Gerador de Petições Inteligente</title>
     
-    <!-- Favicon: Folha de Papel Laranja -->
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23ea580c'><path d='M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z'/></svg>">
     
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
@@ -32,7 +31,6 @@
                 radial-gradient(900px 600px at 50% 95%, rgba(253,186,116,.30), transparent 60%);
         }
 
-        /* Contentor que será substituído */
         #app-viewport {
             min-height: 100vh;
             width: 100%;
@@ -77,7 +75,6 @@
             box-shadow: 0 14px 34px rgba(17,24,39,.08); transition: .2s;
         }
 
-        /* Loader Fixo (não desaparece ao trocar de conteúdo) */
         #loader {
             display: none; position: fixed; inset: 0;
             background: rgba(255,250,245,.95); backdrop-filter: blur(10px);
@@ -95,7 +92,6 @@
 
     <div class="bg-container"><div class="bg-gradient"></div></div>
 
-    <!-- LOADER PERSISTENTE -->
     <div id="loader">
         <div style="display: flex; flex-direction: column; align-items: center;">
             <div class="loader-circle"></div>
@@ -104,7 +100,6 @@
     </div>
 
     <div id="app-viewport">
-        <!-- TELA INICIAL (UPLOAD) -->
         <div class="app-container">
             <section class="view">
                 <div class="logo"><img src="https://i.imgur.com/NM93tBo.png" alt="Logótipo"></div>
@@ -137,7 +132,7 @@
             l.style.display = show ? 'flex' : 'none';
         }
 
-        // Função principal para enviar dados e tratar a resposta (mirroring)
+        // Função principal corrigida para evitar erro de JSON inesperado
         async function sendRequest(url, body, isFormData = true) {
             showLoader(true);
             try {
@@ -147,30 +142,44 @@
                 }
 
                 const response = await fetch(url, options);
-                const contentType = response.headers.get("content-type");
-                let htmlContent = "";
+                
+                if (!response.ok) throw new Error(`Erro no servidor: ${response.status}`);
 
+                // Pegamos o texto bruto primeiro para tratar qualquer resposta
+                const responseText = await response.text();
+                if (!responseText) throw new Error("O servidor retornou uma resposta vazia.");
+
+                let htmlContent = "";
+                const contentType = response.headers.get("content-type");
+
+                // Se for JSON, tentamos extrair o campo HTML ou o dado direto
                 if (contentType && contentType.includes("application/json")) {
-                    const data = await response.json();
-                    htmlContent = Array.isArray(data) ? (data[0].html || data[0]) : (data.html || data);
+                    try {
+                        const data = JSON.parse(responseText);
+                        // n8n pode devolver um array ou objeto direto
+                        const source = Array.isArray(data) ? data[0] : data;
+                        htmlContent = source.html || source.output || responseText;
+                    } catch (e) {
+                        htmlContent = responseText;
+                    }
                 } else {
-                    htmlContent = await response.text();
+                    htmlContent = responseText;
                 }
 
-                if (htmlContent && (htmlContent.includes("<html") || htmlContent.includes("<!DOCTYPE"))) {
+                // Verifica se recebemos algo que parece HTML ou conteúdo válido
+                if (htmlContent) {
                     updateViewport(htmlContent);
                 } else {
-                    alert("Resposta inválida do servidor.");
+                    alert("A resposta não contém conteúdo válido.");
                     showLoader(false);
                 }
             } catch (error) {
-                console.error(error);
+                console.error("Erro na requisição:", error);
                 alert("Erro na ligação: " + error.message);
                 showLoader(false);
             }
         }
 
-        // Faz o upload inicial
         async function handleFileUpload() {
             const input = document.getElementById('fileInput');
             if(!input.files.length) return alert("Selecione um PDF.");
@@ -182,17 +191,16 @@
             await sendRequest(WEBHOOK_ANALISE, formData);
         }
 
-        // Atualiza o viewport sem destruir o loader ou o URL
         function updateViewport(htmlContent) {
             const viewport = document.getElementById('app-viewport');
             
-            // Técnica de Mirroring Seguro usando Iframe para preservar o domínio principal
+            // Criação do Iframe para espelhamento seguro
             viewport.innerHTML = `<iframe id="mirror-frame" style="width:100%; min-height:100vh; border:none; overflow:auto;"></iframe>`;
             
             const iframe = document.getElementById('mirror-frame');
             const doc = iframe.contentWindow.document;
 
-            // Injeta script para capturar cliques em botões de submit dentro do iframe
+            // Script injetado para lidar com formulários dentro do n8n
             const injection = `
                 <script>
                     document.addEventListener('submit', function(e) {
@@ -202,11 +210,10 @@
                         const payload = {};
                         formData.forEach((value, key) => payload[key] = value);
 
-                        // Comunica com a página pai para processar o próximo passo
+                        // Envia o comando para o pai processar o próximo webhook
                         window.parent.processFormStep(form.action, JSON.stringify(payload));
                     });
 
-                    // Ajusta altura do iframe automaticamente
                     function adjustHeight() {
                         const frame = window.parent.document.getElementById('mirror-frame');
                         if (frame) {
@@ -215,13 +222,14 @@
                     }
                     window.onload = adjustHeight;
                     window.onclick = adjustHeight;
-                    // Observador para mudanças no conteúdo (ex: modais abertos)
                     const observer = new MutationObserver(adjustHeight);
                     observer.observe(document.body, { childList: true, subtree: true });
                 <\/script>
             `;
 
-            const finalHtml = htmlContent.replace('</body>', injection + '</body>');
+            const finalHtml = htmlContent.includes('</body>') 
+                ? htmlContent.replace('</body>', injection + '</body>')
+                : htmlContent + injection;
 
             doc.open();
             doc.write(finalHtml);
@@ -230,13 +238,12 @@
             showLoader(false);
         }
 
-        // Função chamada pelo iframe para processar o formulário da revisão
+        // Chamada quando o usuário clica em botões dentro do HTML vindo do n8n
         window.processFormStep = async function(url, jsonPayload) {
             showLoader(true, "Gerando sua petição...");
             await sendRequest(url, jsonPayload, false);
         };
 
-        // Feedback visual do upload
         document.getElementById('fileInput').addEventListener('change', (e) => {
             const f = e.target.files[0];
             if(f) {
